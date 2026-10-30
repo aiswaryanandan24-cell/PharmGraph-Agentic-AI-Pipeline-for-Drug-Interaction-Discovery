@@ -1,0 +1,81 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+
+# Environment & secrets
+.env
+key.txt
+*.key
+secrets.txt
+
+# Large data / model files
+*.pkl
+*.db
+*.sqlite
+*.h5
+*.pt
+*.pth
+
+# Large raw data files
+data/drug_target_interactions.csv
+ddinter_all_pairs_any_level.json
+ddinter_holdout_positive.csv
+
+# Test cache
+.pytest_cache/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & outputs
+*.log
+data/evaluation_results.csv
+data/evaluation_summary.json
+data/literature_eval_results.csv
+data/literature_eval_summary.json
+
+# DDInter raw downloads (large CSVs)
+ddinter/
+ddinter_downloads_code_*.csv
+
+# Root-level generated output files
+ablation_summary.json
+evaluation_results.csv
+evaluation_results_ddinter.csv
+evaluation_summary.json
+evaluation_summary_ddinter.json
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Draft / working documents
+Claude outputs/
+*.docx
+
+# Nested external git repos
+data/DDIMDL/
+
+# Stray files
+data/c
+streamlit

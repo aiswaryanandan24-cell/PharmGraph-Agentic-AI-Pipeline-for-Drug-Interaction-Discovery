@@ -1,0 +1,21 @@
+# Core LLM & agent framework
+langchain==0.3.25
+langchain-openai==0.3.16
+langchain-core==0.3.61
+langgraph==0.4.8
+openai==1.82.1
+
+# Data & graph
+networkx==3.4.2
+pandas==2.2.3
+numpy==2.2.5
+
+# Validation & typing
+pydantic==2.11.4
+
+# UI
+streamlit==1.45.1
+
+# Utilities
+python-dotenv==1.1.0
+requests==2.32.3
