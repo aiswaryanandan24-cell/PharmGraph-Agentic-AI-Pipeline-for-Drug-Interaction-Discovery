@@ -1,4 +1,4 @@
-# PharmGraph 🧬
+# PharmGraph 
 ### An Agentic AI Pipeline for Drug-Drug Interaction Discovery
 
 PharmGraph is a multi-agent AI system that detects and explains **drug-drug interactions (DDIs)** by combining a biomedical knowledge graph with grounded LLM reasoning. It cross-references **ChEMBL 37** drug-target data with the **DDInter 2.0** clinical interaction database, then uses a four-agent LangGraph pipeline to retrieve evidence, reason about mechanisms, validate confidence, and generate a clinical report.
