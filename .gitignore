@@ -79,3 +79,16 @@ data/DDIMDL/
 # Stray files
 data/c
 streamlit
+
+# Non-essential utility / dev scripts
+build_merged_kg.py
+build_full_merged_kg.py
+evaluate.py
+evaluate_baselines.py
+evaluate_ddimdl.py
+find_drug_pairs.py
+patch.py
+
+# Generated / intermediate data files
+ddinter_kg_vocab.json
+data/drugs.csv
