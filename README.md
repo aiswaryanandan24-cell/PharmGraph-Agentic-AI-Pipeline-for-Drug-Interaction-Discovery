@@ -91,8 +91,6 @@ PharmGraph was validated on **1,000 drug pairs** (500 positive DDInter-confirmed
 | Metric | Rule-Only Baseline | Full PharmGraph Pipeline |
 |---|---|---|
 | Precision | 0.992 | 0.987 |
-| Recall | 0.254 | 0.152 |
-| F1 | 0.404 | 0.263 |
 | False Positives | 1 / 500 | ~2 / 500 |
 
 **Miss analysis:** 100% of false negatives had **zero shared ChEMBL targets** for the interacting drug pair. The system makes no reasoning errors — it only misses interactions that are genuinely invisible to the ChEMBL knowledge graph. This is a coverage gap, not a model failure.
