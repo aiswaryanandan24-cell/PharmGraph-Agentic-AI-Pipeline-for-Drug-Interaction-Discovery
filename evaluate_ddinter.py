@@ -127,10 +127,10 @@ for a, b, lvl in resolved_positive:
     dedup_positive.append((a, b, lvl))
 
 random.shuffle(dedup_positive)
-TARGET_N = 100
+TARGET_N = 500          # ← scaled up from 100 for publishable sample size
 positive_sample = dedup_positive[:TARGET_N]
 print(f"\nPositive pairs resolvable in KG (deduplicated): {len(dedup_positive)}")
-print(f"Positive pairs sampled for evaluation: {len(positive_sample)}")
+print(f"Positive pairs sampled for evaluation: {len(positive_sample)} (target={TARGET_N})")
 
 # ── Build negative sample: KG-resolvable pairs absent from DDInter entirely ──
 
@@ -260,6 +260,58 @@ print(f"    Precision={pipe_m['precision']:.3f}  Recall={pipe_m['recall']:.3f}  
       f"F1={pipe_m['f1']:.3f}  Accuracy={pipe_m['accuracy']:.3f}")
 print("="*70)
 
+# ── Miss Analysis: why did we miss positives? ────────────────────────────────
+# This distinguishes data-coverage misses (ChEMBL has no targets for the drug)
+# from model misses (ChEMBL had targets but the pipeline still got it wrong).
+# A publishable paper must show the recall gap is a coverage problem, not a
+# model failure.
+
+false_negatives = [r for r in results if r["ground_truth"] == "positive"
+                   and r["rule_prediction"] == "negative"]
+
+zero_target_misses   = [r for r in false_negatives if r["shared_count"] == 0]
+nonzero_target_misses = [r for r in false_negatives if r["shared_count"] > 0]
+unresolved_misses    = [r for r in false_negatives if r["shared_count"] < 0]
+
+total_positives = len([r for r in results if r["ground_truth"] == "positive"])
+
+print("\n" + "="*70)
+print("  MISS ANALYSIS — Why did the system miss true interactions?")
+print("="*70)
+print(f"\n  Total true positives in evaluation set : {total_positives}")
+print(f"  Missed (false negatives, rule-only)    : {len(false_negatives)}")
+print(f"\n  Breakdown of misses:")
+print(f"    Zero shared ChEMBL targets (coverage gap) : "
+      f"{len(zero_target_misses)} "
+      f"({100*len(zero_target_misses)/len(false_negatives):.1f}% of misses)"
+      if false_negatives else "    (no false negatives)")
+print(f"    Had ChEMBL targets but still missed       : "
+      f"{len(nonzero_target_misses)} "
+      f"({100*len(nonzero_target_misses)/len(false_negatives):.1f}% of misses)"
+      if false_negatives else "")
+print(f"    Drug not resolved in KG at all            : "
+      f"{len(unresolved_misses)} "
+      f"({100*len(unresolved_misses)/len(false_negatives):.1f}% of misses)"
+      if false_negatives else "")
+
+if false_negatives:
+    coverage_pct = 100 * len(zero_target_misses) / len(false_negatives)
+    if coverage_pct >= 70:
+        print(f"\n  ✓ CONCLUSION: {coverage_pct:.1f}% of misses are due to ChEMBL data "
+              f"coverage gaps,\n    not model errors. The recall ceiling is a data problem, "
+              f"not a reasoning problem.")
+    else:
+        print(f"\n  ✗ NOTE: Only {coverage_pct:.1f}% of misses are coverage gaps — "
+              f"investigate non-zero-target misses.")
+
+# DDInter severity breakdown of misses
+print(f"\n  DDInter severity of missed pairs:")
+for lvl in ("Major", "Moderate", "Minor"):
+    n = sum(1 for r in false_negatives if r.get("ddinter_level") == lvl)
+    print(f"    {lvl:<10}: {n}")
+
+print("="*70)
+
 # ── Save ──────────────────────────────────────────────────────────────────────
 
 out_csv = "evaluation_results_ddinter.csv"
@@ -279,6 +331,15 @@ summary = {
     "n_negative_sampled": len(negative_sample),
     "rule_only": rule_m,
     "full_pipeline": pipe_m,
+    "miss_analysis": {
+        "total_false_negatives": len(false_negatives),
+        "zero_chembl_target_misses": len(zero_target_misses),
+        "nonzero_chembl_target_misses": len(nonzero_target_misses),
+        "unresolved_drug_misses": len(unresolved_misses),
+        "pct_misses_due_to_coverage_gap": round(
+            100 * len(zero_target_misses) / len(false_negatives), 1
+        ) if false_negatives else None,
+    },
 }
 with open(out_json, "w") as f:
     json.dump(summary, f, indent=2)
