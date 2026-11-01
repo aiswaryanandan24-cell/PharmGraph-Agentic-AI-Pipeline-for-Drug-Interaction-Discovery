@@ -11,7 +11,7 @@
 
 ## Overview
 
-PharmGraph is a **knowledge-grounded, multi-agent AI pipeline** that detects and mechanistically explains drug-drug interactions (DDIs) by fusing biomedical knowledge graph traversal with structured large language model reasoning.
+PharmGraph is a **knowledge-grounded, multi-agent AI pipeline** that detects and mechanistically explains drug interactions (DDIs) by fusing biomedical knowledge graph traversal with structured large language model reasoning.
 
 Unlike black-box ML classifiers that predict DDIs without explanation, PharmGraph produces **mechanistically interpretable reports** grounded in real bioactivity data — every claim is traceable to a specific ChEMBL assay or DDInter clinical record. The system is designed around a core principle: **LLM reasoning should augment evidence, never replace it.**
 
