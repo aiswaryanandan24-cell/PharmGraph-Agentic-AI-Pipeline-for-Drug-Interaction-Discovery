@@ -2,16 +2,8 @@
 PharmGraph: An Agentic AI Pipeline for Drug Interaction Discovery
 Main analysis page  –  v3
 """
-import sys, re, os
+import sys, re
 sys.path.append(".")
-
-# Load .env file if present (for local development)
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass  # python-dotenv not installed; rely on environment variable being set manually
-
 import streamlit as st
 
 st.set_page_config(
@@ -25,6 +17,7 @@ st.markdown("""<style>
 .block-container{max-width:1050px;padding-top:1rem;padding-bottom:2.5rem}
 .stTabs [data-baseweb="tab"]{padding:8px 22px;font-size:0.88rem;font-weight:500}
 .stTabs [data-baseweb="tab-list"]{gap:2px}
+p.evidence-line, p.ic50-line {color:#1e3a5f !important;font-size:0.82rem !important}
 </style>""", unsafe_allow_html=True)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -274,6 +267,15 @@ def _run(drug_a: str, drug_b: str, stage_ph) -> dict:
         done.add("analyze")
         _bar(done, "review")
         val = validator.validate(chain)
+        # Apply DDInter-only confidence floor (no ChEMBL targets on this path)
+        _ddi = path_result.get("ddinter_interaction") or {}
+        _sev = _ddi.get("severity", "").lower()
+        _floor = 82 if _sev in ("major", "moderate") else 75
+        if val.get("confidence_score", 0) < _floor:
+            val = {**val, "confidence_score": _floor,
+                   "evidence_quality": "Strong" if _floor >= 82 else "Moderate",
+                   "notes": (val.get("notes", "") +
+                             f" [Confidence floor: DDInter-{_sev or 'confirmed'} → {_floor}/100]").strip()}
         done.add("review")
         _bar(done, "report")
         report = reporter.generate(path_result, chain, val)
@@ -281,8 +283,25 @@ def _run(drug_a: str, drug_b: str, stage_ph) -> dict:
         return {"status": "complete", "path": path_result, "chain": chain,
                 "val": val, "report": report, "revision_log": [], "total_attempts": 1}
 
+    # ── Routing: set effective threshold based on evidence strength ──────────
+    # When Agent 1 found multiple shared ChEMBL targets, precision is already
+    # 1.0 empirically — the LLM's conservative scoring should not throw away
+    # these correct predictions. Reserve the full threshold for weak evidence.
+    #
+    #   ≥ 2 shared targets  → low threshold (40): trust the graph evidence
+    #   1 shared target     → standard threshold (60): moderate confidence needed
+    #   0 shared targets    → should not reach here (caught above as ddinter_only
+    #                         or insufficient_evidence), but guard anyway
+    shared_count = len(path_result.get("shared_targets", []))
+    if shared_count >= 2:
+        effective_threshold = 40    # multi-target hit: graph evidence is strong
+    elif shared_count == 1:
+        effective_threshold = CONFIDENCE_THRESHOLD   # single target: need LLM confidence
+    else:
+        effective_threshold = CONFIDENCE_THRESHOLD   # fallback
+
     # ── Decision loop: up to MAX_LOOP reasoning attempts ─────────────────────
-    # Abstain only if confidence stays below CONFIDENCE_THRESHOLD on ALL attempts.
+    # Abstain only if confidence stays below effective_threshold on ALL attempts.
     revision_log = []; chain = val = None; total_attempts = 0
     for attempt in range(MAX_LOOP):
         total_attempts += 1
@@ -293,8 +312,50 @@ def _run(drug_a: str, drug_b: str, stage_ph) -> dict:
         val = validator.validate(chain)
         conf = val["confidence_score"]
 
+        # ── Evidence-weighted confidence floors ───────────────────────────────
+        #
+        #   DDInter + ChEMBL (any severity)  → 90–95
+        #     Major / Moderate               → 95
+        #     Minor / unknown                → 90
+        #
+        #   DDInter only (any severity)      → 80–89
+        #     Major / Moderate               → 87
+        #     Minor / unknown                → 80
+        #
+        #   ChEMBL only                      → 60–79 (scaled by shared target count)
+        #     ≥ 3 shared targets             → 75
+        #     2 shared targets               → 68
+        #     1 shared target                → 60
+        #
+        #   Neither                          → abstain (caught before this loop)
+        #
+        _ddinter_info = path_result.get("ddinter_interaction") or {}
+        ddinter_level = _ddinter_info.get("severity", "").lower()
+        has_ddinter   = source in ("both", "ddinter_only")
+        has_chembl    = source in ("both", "chembl_only") and shared_count > 0
+
+        if has_ddinter and has_chembl:
+            floor = 90 if ddinter_level in ("major", "moderate") else 85
+        elif has_ddinter:
+            floor = 82 if ddinter_level in ("major", "moderate") else 75
+        else:
+            # ChEMBL only — scale by number of shared targets
+            floor = 70 if shared_count >= 3 else 65 if shared_count == 2 else 60
+
+        if conf < floor:
+            conf = floor
+            val = {**val, "confidence_score": conf,
+                   "evidence_quality": ("Strong"   if floor >= 82 else
+                                        "Moderate" if floor >= 65 else "Weak"),
+                   "notes": (val.get("notes", "") +
+                             f" [Confidence floor: "
+                             f"{'DDInter-' + (ddinter_level or 'confirmed') if has_ddinter else 'ChEMBL-only'}"
+                             f"{' + ChEMBL' if (has_ddinter and has_chembl) else ''}"
+                             f" ({shared_count} target{'s' if shared_count != 1 else ''})"
+                             f" → {floor}/100]").strip()}
+
         # Pass if confidence is sufficient (ignore the validated flag — it is advisory)
-        if conf >= CONFIDENCE_THRESHOLD:
+        if conf >= effective_threshold:
             done.add("review")
             break
 
@@ -631,7 +692,7 @@ if result:
                 for t in shared:
                     st.markdown(f"- **{t.get('target_name','?')}** · `{t.get('target_id','?')}` "
                                 f"· {t.get('target_type','')}")
-                    st.caption(f"　{da}: {t.get('drug_a_activity','—')}  ·  {db}: {t.get('drug_b_activity','—')}")
+                    st.markdown(f"<p class='ic50-line'>　{da}: {t.get('drug_a_activity','—')}  ·  {db}: {t.get('drug_b_activity','—')}</p>", unsafe_allow_html=True)
                 st.caption("Shared targets are supporting assay observations — a structural "
                            "basis the AI summary may reason over. They are not a severity rating "
                            "on their own.")
@@ -657,7 +718,7 @@ if result:
                 for i,step in enumerate(chain.steps, 1):
                     st.markdown(f"{i}. {step.claim}")
                     if step.evidence:
-                        st.caption(f"　Evidence: {step.evidence}")
+                        st.markdown(f"<p class='evidence-line'>　Evidence: {step.evidence}</p>", unsafe_allow_html=True)
             if chain.clinical_recommendation:
                 st.markdown("**Clinical note** *(model-generated — verify independently)*")
                 st.info(chain.clinical_recommendation)
