@@ -174,6 +174,9 @@ pytest tests/ -v
 
 ---
 
+Aiswarya Nandan Perumbilly
+Indiana University Indianapolis
+
 ## License
 
 MIT — see [LICENSE](LICENSE)
