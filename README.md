@@ -3,6 +3,10 @@
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/orchestration-LangGraph-green.svg)](https://github.com/langchain-ai/langgraph)
+[![LangChain](https://img.shields.io/badge/framework-LangChain-green.svg)](https://github.com/langchain-ai/langchain)
+[![OpenAI](https://img.shields.io/badge/LLM-GPT--4o--mini-412991.svg)](https://openai.com/)
+[![NetworkX](https://img.shields.io/badge/graph-NetworkX-informational.svg)](https://networkx.org/)
+[![Streamlit](https://img.shields.io/badge/UI-Streamlit-ff4b4b.svg)](https://streamlit.io/)
 [![ChEMBL 37](https://img.shields.io/badge/data-ChEMBL%2037-orange.svg)](https://www.ebi.ac.uk/chembl/)
 [![DDInter 2.0](https://img.shields.io/badge/validation-DDInter%202.0-red.svg)](https://ddinter2.scbdd.com)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
