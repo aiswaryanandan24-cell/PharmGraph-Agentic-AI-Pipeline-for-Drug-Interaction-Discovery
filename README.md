@@ -1,5 +1,5 @@
 # PharmGraph
-### A Multi-Agent AI System for Mechanistic Drug-Drug Interaction Discovery
+### Drug Interaction & Molecular Target Knowledge Graph Platform
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/orchestration-LangGraph-green.svg)](https://github.com/langchain-ai/langgraph)
@@ -11,123 +11,114 @@
 
 ## Overview
 
-PharmGraph is a **knowledge-grounded, multi-agent AI pipeline** that detects and mechanistically explains drug interactions (DDIs) by fusing biomedical knowledge graph traversal with structured large language model reasoning.
+Current clinical decision support systems (CDSS) and EHR platforms flag drug-drug interactions with a severity label — but provide no mechanistic context. Understanding *why* an interaction occurs (which protein targets are shared, which pathway is implicated) requires manually cross-referencing two separate databases: DDInter for severity and ChEMBL for molecular target data. This is time-consuming and is not currently within the scope of most CDSS tools.
 
-Unlike black-box ML classifiers that predict DDIs without explanation, PharmGraph produces **mechanistically interpretable reports** grounded in real bioactivity data — every claim is traceable to a specific ChEMBL assay or DDInter clinical record. The system is designed around a core principle: **LLM reasoning should augment evidence, never replace it.**
+PharmGraph fills that gap. It is a **knowledge graph-powered, multi-agent AI platform** that queries both databases in a single workflow and returns a complete, downloadable interaction report at one click — designed to complement EHR integration and clinical trial pharmacovigilance workflows.
+
+**Each report includes:**
+- DDInter severity classification (Major / Moderate / Minor)
+- Shared protein binding targets with assay data (from ChEMBL 37)
+- LLM-generated mechanism of action explaining *why* the interaction occurs
+- Evidence-weighted confidence score
+- Generic and brand names for both drugs
+- Downloadable clinical note (for trial documentation or EHR attachment)
+
+> **Scope:** PharmGraph retrieves and explains documented interactions. It does not predict undocumented ones. "No interaction found" means no evidence in these two sources — it does not guarantee safety.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      PharmGraph Pipeline                    │
-│                                                             │
-│  Drug A ──┐                                                 │
-│           ├──► [Agent 1] PathRetriever                      │
-│  Drug B ──┘    ChEMBL KG traversal + DDInter lookup         │
-│                        │                                    │
-│                        ▼                                    │
-│           [Agent 2] MechanismReasoner                       │
-│           GPT-4o-mini, grounded to retrieved evidence only  │
-│                        │                                    │
-│                        ▼                                    │
-│           [Agent 3] EvidenceValidator                       │
-│           Evidence-weighted confidence scoring              │
-│                        │                                    │
-│                        ▼                                    │
-│           [Agent 4] ReportGenerator                         │
-│           Structured clinical interaction report            │
-└─────────────────────────────────────────────────────────────┘
+Drug A ──┐
+         ├──► [Agent 1] PathRetriever
+Drug B ──┘    ChEMBL KG traversal + DDInter lookup
+                      │
+                      ▼
+         [Agent 2] MechanismReasoner
+         GPT-4o-mini, grounded to retrieved evidence only
+                      │
+                      ▼
+         [Agent 3] EvidenceValidator
+         Evidence-weighted confidence scoring
+                      │
+                      ▼
+         [Agent 4] ReportGenerator
+         Structured clinical report (PDF + JSON)
 ```
 
-**Orchestration:** Stateful agent graph via LangGraph — each agent writes typed outputs to a shared state object, enabling downstream agents to build on upstream results without requerying.
+Orchestrated via LangGraph — each agent writes typed outputs to a shared state object.
 
 ---
 
-## Key Design Decisions
+## Knowledge Graph
 
-### 1. Evidence-Weighted Confidence Scoring
-Rather than relying on LLM self-reported confidence (which clusters at 65–75 due to temperature=0 calibration bias), PharmGraph applies a **deterministic evidence floor schema**:
+Built from two sources via a reproducible ETL pipeline:
 
-| Evidence Type | DDInter Severity | Confidence Floor |
+| Component | Count |
+|---|---|
+| Drug nodes | 10,000 |
+| Protein target nodes | 4,527 |
+| Total nodes | 15,557 |
+| Total edges | 96,763 |
+| DDInter interaction pairs | 11,727 |
+
+Of 10,000 drugs, 3,736 (37.4%) have ChEMBL target data and receive full mechanistic enrichment. The remaining 6,264 return DDInter severity without molecular explanation. This is reported explicitly in every generated report.
+
+---
+
+## Confidence Scoring
+
+Rather than relying on LLM self-reported confidence, PharmGraph applies a deterministic evidence floor schema:
+
+| Evidence | DDInter Severity | Floor |
 |---|---|---|
-| DDInter + ChEMBL shared targets | Major | 90 |
-| DDInter + ChEMBL shared targets | Moderate | 85 |
-| DDInter + ChEMBL shared targets | Minor/Unknown | 80 |
+| DDInter + shared ChEMBL targets | Major | 90 |
+| DDInter + shared ChEMBL targets | Moderate | 85 |
+| DDInter + shared ChEMBL targets | Minor/Unknown | 80 |
 | DDInter only | Major | 79 |
 | DDInter only | Moderate | 75 |
 | DDInter only | Minor/Unknown | 70 |
 | ChEMBL only (≥3 shared targets) | — | 67 |
-| ChEMBL only (2 shared targets) | — | 63 |
-| ChEMBL only (1 shared target) | — | 60 |
+| ChEMBL only (1–2 shared targets) | — | 60 |
 
-This eliminates LLM-as-judge bias while preserving GPT-4o-mini for qualitative interpretation (mechanism explanation, clinical caveats, biggest strength/weakness analysis).
-
-### 2. DDInter Severity is Always Authoritative
-The LLM **never overrides** a recorded DDInter severity label. Clinical records from DDInter 2.0 propagate directly to the final report; the LLM's role is to explain the mechanism, not to re-classify the severity.
-
-### 3. Adaptive Confidence Threshold Routing
-Interaction detection uses a shared-target-count-aware threshold:
-- **≥2 shared ChEMBL targets** → threshold lowered to 40 (mechanistic signal is strong)
-- **1 shared target or DDInter-only** → standard threshold (60)
-
-This avoids false negatives on well-evidenced interactions where the LLM may hedge.
-
-### 4. Grounding Verification
-Agent 2 output is lexically checked to confirm it references the actual retrieved protein targets. Responses that introduce ungrounded targets are flagged and the confidence score is penalized automatically.
-
-### 5. Brand Name Resolution
-Accepts trade names (Lipitor → atorvastatin, Coumadin → warfarin) via a curated synonym map, lowering the barrier for clinical use cases.
+Scores are capped at 90 to reflect the absence of prospective clinical validation. DDInter severity is never overridden by the LLM.
 
 ---
 
 ## Evaluation
 
-### External Validation Against DDInter 2.0
+Validated on **1,000 drug pairs** (500 DDInter-confirmed positives + 500 presumed negatives — drugs in DDInter vocabulary with no recorded interaction).
 
-PharmGraph was validated on **1,000 drug pairs** (500 positive DDInter-confirmed interactions + 500 negative pairs — drugs present in DDInter's vocabulary but with no recorded interaction). This design breaks the circularity of KG-sampled benchmarks.
-
-| Metric | Rule-Only Baseline | Full PharmGraph Pipeline |
+| | Rule-Only | Full Pipeline |
 |---|---|---|
-| Precision | 0.992 | 0.987 |
-| False Positives | 1 / 500 | ~2 / 500 |
+| Precision | 99.2% | 98.7% |
+| False Positives | 1 / 500 | 2 / 500 |
 
-**Miss analysis:** 100% of false negatives had **zero shared ChEMBL targets** for the interacting drug pair. The system makes no reasoning errors — it only misses interactions that are genuinely invisible to the ChEMBL knowledge graph. This is a coverage gap, not a model failure.
+**Miss analysis:** 100% of false negatives had zero shared ChEMBL targets. All missed interactions are due to ChEMBL coverage gaps, not logic errors.
 
-### Ablation Study (32-pair clinical benchmark)
+### Ablation (200-pair benchmark)
 
-| Method | Description | Notes |
+| Method | Precision | Recall |
 |---|---|---|
-| Method 1 | Shared-target rule only | No LLM |
-| Method 2 | Single LLM call | No knowledge graph |
-| Method 3 | Graph + single LLM prompt | No multi-agent |
-| Method 4 | Full PharmGraph pipeline | Four agents + grounding |
+| Rule-only (KG) | 100% | 59% |
+| LLM-only | 92.6% | 25% |
+| Full pipeline | 100% | 59% |
 
-Full ablation results available in the Evaluation page of the Streamlit app.
+The KG rule layer drives precision. The LLM layer adds mechanistic explanation without introducing false positives.
 
 ---
 
 ## Setup
 
 ### 1. Clone and install
-
 ```bash
 git clone https://github.com/aiswaryanandan24-cell/pharmgraph.git
 cd pharmgraph
 pip install -r requirements.txt
 ```
 
-### 2. Configure API key
-
-Create a `.env` file in the project root:
-
-```
-OPENAI_API_KEY=sk-...
-```
-
-Or set it in your terminal:
-
+### 2. Set API key
 ```bash
 # Windows
 set OPENAI_API_KEY=sk-...
@@ -136,63 +127,21 @@ set OPENAI_API_KEY=sk-...
 export OPENAI_API_KEY=sk-...
 ```
 
-> ⚠️ Never commit your API key. `.env` is in `.gitignore`.
-
 ### 3. Build the knowledge graph
-
-The `.pkl` KG files are not included in the repository (size). Build them locally:
-
 ```bash
 python kg/build_graph.py
 ```
+Requires ChEMBL 37 and DDInter 2.0 source data in `data/`. Runtime: ~45 minutes.
 
-This requires ChEMBL 37 and DDInter 2.0 source data. See `data/` for expected file paths.
-
-### 4. Launch the app
-
+### 4. Run
 ```bash
 streamlit run app.py
-```
-
-Opens at `http://localhost:8501`.
-
----
-
-## Project Structure
-
-```
-pharmgraph/
-├── app.py                          # Streamlit UI — main analysis interface
-├── pages/
-│   ├── 2_Evaluation.py             # Evaluation dashboard (metrics, miss analysis)
-│   └── 3_About.py                  # Methodology and design rationale
-├── agents/
-│   ├── path_retriever.py           # Agent 1: ChEMBL KG traversal
-│   ├── path_retriever_v2.py        # Agent 1 v2: merged ChEMBL + DDInter KG
-│   ├── mechanism_reasoner.py       # Agent 2: grounded LLM mechanism explanation
-│   ├── mechanism_reasoner_v2.py    # Agent 2 v2: DDInter-first reasoning
-│   ├── evidence_validator.py       # Agent 3: evidence-weighted confidence scoring
-│   └── report_generator.py         # Agent 4: structured clinical report
-├── pipeline/
-│   └── ddi_pipeline.py             # LangGraph stateful orchestration
-├── kg/
-│   ├── build_graph.py              # KG construction from ChEMBL + DDInter
-│   └── parse_chembl.py             # ChEMBL bioactivity parser
-├── data/
-│   ├── drug_kg.pkl                 # ChEMBL-only KG (not in repo)
-│   ├── drug_kg_merged.pkl          # ChEMBL + DDInter merged KG (not in repo)
-│   └── drug_kg_full_merged.pkl     # Full merged KG (not in repo)
-├── tests/                          # 125 pytest unit tests
-├── ablation_study.py               # 4-method ablation comparison
-├── evaluate_ddinter.py             # External DDInter 2.0 validation (1,000 pairs)
-├── evaluate_pharmgraph.py          # PharmGraph evaluation script
-├── requirements.txt
-└── requirements-test.txt
+# Opens at http://localhost:8501
 ```
 
 ---
 
-## Running Tests
+## Tests
 
 ```bash
 pip install -r requirements-test.txt
@@ -207,32 +156,18 @@ pytest tests/ -v
 
 | Source | Version | Role |
 |---|---|---|
-| [ChEMBL](https://www.ebi.ac.uk/chembl/) | 37 | Drug-target bioactivity KG (IC50, Ki, Kd, EC50 assays) |
-| [DDInter](https://ddinter2.scbdd.com) | 2.0 | Clinically curated DDI records + severity labels (76,000+ interactions) |
-| [DDIMDL](https://github.com/YifanDengWHU/DDIMDL) | — | Deep learning baseline for ablation comparison |
-
----
-
-## Tech Stack
-
-| Component | Technology |
-|---|---|
-| Multi-agent orchestration | LangGraph (stateful graph) |
-| LLM reasoning | LangChain + OpenAI GPT-4o-mini |
-| Knowledge graph | NetworkX |
-| Structured LLM outputs | Pydantic |
-| UI | Streamlit |
-| Testing | pytest (125 tests) |
+| [ChEMBL](https://www.ebi.ac.uk/chembl/) | 37 | Drug-target bioactivity (IC50, Ki, Kd, EC50) |
+| [DDInter](https://ddinter2.scbdd.com) | 2.0 | Clinically curated DDI severity labels |
 
 ---
 
 ## Limitations
 
-- Requires an OpenAI API key (usage costs apply)
-- KG coverage is bounded by ChEMBL 37 and DDInter 2.0 — novel drugs or rare interactions outside these sources will not be detected
-- "No interaction found" means no evidence in the integrated sources — it does **not** guarantee safety
-- Grounding check is lexical; semantic drift in LLM outputs may not always be caught
-- Recall is intentionally conservative to minimise false positives in a clinical context
+- ChEMBL coverage: 62.6% of drugs have no target data and receive severity only
+- Static snapshot — not updated in real time
+- No dosage, pharmacogenomics, or patient-specific factors
+- Not validated in a clinical setting with patient data
+- Requires OpenAI API key
 
 ---
 
